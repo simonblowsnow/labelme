@@ -201,7 +201,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.label_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.shape_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
-
+        
+        #============================ 新增显示控件·显示选中点信息 ========================
+        self.hShape = None
+        self.canvas.selectPoint.connect(self.selPoint)
+        self.pt_dock = self.pt_widget = None
+        self.pt_dock = QtWidgets.QDockWidget("Select Points", self)
+        self.pt_dock.setObjectName("Points")
+        self.pt_widget = QtWidgets.QListWidget()
+        self.pt_dock.setWidget(self.pt_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.pt_dock)
+        
         # Actions
         action = functools.partial(utils.newAction, self)
         shortcuts = self._config["shortcuts"]
@@ -608,7 +618,32 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if self._config["canvas"]["fill_drawing"]:
             fill_drawing.trigger()
-
+        
+        #===========================新增选择点列表右键菜单==========================
+        cancelSel = action(
+            "Cancel Select",
+            self.cancelPoints,
+            shortcuts["undo"],
+            "undo",
+            "Cancel All selected points",
+            enabled=True,
+        )
+        
+        deleteSel = action(
+            "Delete All Points",
+            self.deletePoints,
+            shortcuts["remove_selected_point"],
+            "delete",
+            "Delete All related points",
+            enabled=True,
+        )
+        
+        pointMenu = QtWidgets.QMenu()
+        utils.addActions(pointMenu, (cancelSel, deleteSel))
+        self.pt_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.pt_widget.customContextMenuRequested.connect(self.popPointListMenu)
+        
+        
         # Lavel list context menu.
         labelMenu = QtWidgets.QMenu()
         utils.addActions(labelMenu, (edit, delete))
@@ -716,6 +751,7 @@ class MainWindow(QtWidgets.QMainWindow):
             help=self.menu(self.tr("&Help")),
             recentFiles=QtWidgets.QMenu(self.tr("Open &Recent")),
             labelList=labelMenu,
+            pointList=pointMenu,
         )
 
         utils.addActions(
@@ -891,6 +927,64 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.firstStart = True
         # if self.firstStart:
         #    QWhatsThis.enterWhatsThisMode()
+    
+    #===============================新增·点列表二菜单事件==============================
+    def cancelPoints(self):
+        self.pt_widget.clear()
+        
+    def deletePoints(self):
+        if not self.hShape: 
+            return self.errorMessage("", "您未选择图形或节点，无法执行删除操作！")
+        if self.pt_widget.count() != 2: 
+            return self.errorMessage("", "已选择的点多余或少于2个，无法执行删除操作！")
+        up, down = self.pt_widget.item(0).text(), self.pt_widget.item(1).text()
+        if (up == down):
+            return self.errorMessage("", "两点位置相同，无法执行删除操作！")
+        # 获取两点间的点列表
+        idx, parts = 0, [[], [], []]
+        for i, pt in enumerate(self.hShape.points):
+            txt = "%s, %s" % (round(pt.x(), 5), round(pt.y(), 5))
+            if txt == up or txt == down: idx += 1
+            parts[idx].append(i)
+        if idx < 2: 
+            return self.errorMessage("", "在图形中未找到选中的两点，请重新选择！")
+        '''在封闭图形中，两点间的序列存在两种情形，需要用户做选择'''
+        '''两点分别位于二、三端的起始'''
+        c1 = len(parts[1]) + 1
+        c2 = len(parts[0]) + len(parts[2]) + 1
+        msgbox = QtWidgets.QMessageBox()
+        msgbox.setText("请选择两点间的节点序列：")
+        msgbox.addButton("序列1（%s点）" % c1, QtWidgets.QMessageBox.AcceptRole)
+        msgbox.addButton("序列2（%s点）" % c2, QtWidgets.QMessageBox.AcceptRole)
+        msgbox.addButton("取消", QtWidgets.QMessageBox.RejectRole)
+        res = msgbox.exec_()
+        
+        '''根据用户选择，执行对应操作'''
+        ids = []  
+        if res == 2: return
+        if res == 0:
+            ids = parts[1] + parts[2][:1]
+        elif res == 1:
+            ids = parts[0] + parts[1][:1] + parts[2]
+        for i in range(len(ids) - 1, -1, -1):
+            self.hShape.removePoint(ids[i])
+        
+        self.canvas.update()
+        self.setDirty()
+        self.pt_widget.clear()
+        
+    def selPoint(self, pt):
+        if not self.hShape: self.hShape = self.canvas.hShape
+        if self.hShape != self.canvas.hShape:
+            self.pt_widget.clear()
+            self.hShape = self.canvas.hShape
+        
+        txt = str(pt[0]) + ", " + str(pt[1])
+        item = QtWidgets.QListWidgetItem(txt)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        item.setCheckState(Qt.Checked if True else Qt.Unchecked)
+        self.pt_widget.addItem(item)
+
 
     def menu(self, title, actions=None):
         menu = self.menuBar().addMenu(title)
@@ -1073,7 +1167,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def popLabelListMenu(self, point):
         self.menus.labelList.exec_(self.labelList.mapToGlobal(point))
-
+    
+    #==============节点选择右键菜单==============
+    def popPointListMenu(self, point):
+        self.menus.pointList.exec_(self.pt_widget.mapToGlobal(point))
+        
     def validateLabel(self, label):
         # no validation
         if self._config["validate_label"] is None:

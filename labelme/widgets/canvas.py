@@ -30,7 +30,8 @@ class Canvas(QtWidgets.QWidget):
     shapeMoved = QtCore.Signal()
     drawingPolygon = QtCore.Signal(bool)
     vertexSelected = QtCore.Signal(bool)
-
+    selectPoint = QtCore.Signal(list)
+    
     CREATE, EDIT = 0, 1
 
     # polygon, rectangle, line, or point
@@ -484,7 +485,11 @@ class Canvas(QtWidgets.QWidget):
                 self.selectShapePoint(pos, multiple_selection_mode=group_mode)
                 self.repaint()
             self.prevPoint = pos
-
+            #========================右键点击点选中并在列表中显示==========================
+            if self.selectedVertex() and self.hShape.shape_type == 'polygon':
+                pt = self.hShape.points[self.hVertex]
+                self.selectPoint.emit([round(pt.x(), 5), round(pt.y(), 5)])
+            
     def mouseReleaseEvent(self, ev):
         if ev.button() == QtCore.Qt.RightButton:
             menu = self.menus[len(self.selectedShapesCopy) > 0]
